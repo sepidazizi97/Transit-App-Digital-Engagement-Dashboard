@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+from pathlib import Path
 
 # --------------------------------------------------
 # PAGE SETTINGS
@@ -18,18 +19,43 @@ st.caption(
 )
 
 # --------------------------------------------------
-# GITHUB RAW EXCEL LINK
+# LOCAL EXCEL FILE IN GITHUB REPOSITORY
 # --------------------------------------------------
 
-GITHUB_EXCEL_URL = "https://raw.githubusercontent.com/YOUR_USERNAME/YOUR_REPO/main/Transit_App_Lines_Data.xlsx"
+DATA_FILE = Path("Transit_App_Lines_Data.xlsx")
 
 # --------------------------------------------------
 # LOAD DATA
 # --------------------------------------------------
 
 @st.cache_data
-def load_data(url):
-    df = pd.read_excel(url)
+def load_data(file_path):
+    if not file_path.exists():
+        st.error(
+            "The Excel file was not found. Please make sure "
+            "`Transit_App_Lines_Data.xlsx` is uploaded to the same GitHub repository "
+            "as `streamlit_app.py`."
+        )
+        st.stop()
+
+    df = pd.read_excel(file_path)
+
+    df.columns = df.columns.str.strip()
+
+    required_cols = [
+        "route_short_name",
+        "date",
+        "nearby_views",
+        "nearby_taps",
+        "tapped_routing_suggestions",
+        "go_trips"
+    ]
+
+    missing_cols = [col for col in required_cols if col not in df.columns]
+
+    if missing_cols:
+        st.error(f"Missing required columns: {missing_cols}")
+        st.stop()
 
     df["date"] = pd.to_datetime(df["date"], errors="coerce")
 
@@ -43,13 +69,15 @@ def load_data(url):
     for col in numeric_cols:
         df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
 
+    df = df.dropna(subset=["date"])
+
     df["year"] = df["date"].dt.year
     df["month"] = df["date"].dt.month_name()
     df["month_number"] = df["date"].dt.month
     df["year_month"] = df["date"].dt.to_period("M").astype(str)
     df["weekday"] = df["date"].dt.day_name()
     df["day"] = df["date"].dt.day
-    df["week"] = df["date"].dt.isocalendar().week
+    df["week"] = df["date"].dt.isocalendar().week.astype(int)
     df["is_weekend"] = df["weekday"].isin(["Saturday", "Sunday"])
 
     def get_season(month):
@@ -72,7 +100,7 @@ def load_data(url):
     return df
 
 
-df = load_data(GITHUB_EXCEL_URL)
+df = load_data(DATA_FILE)
 
 # --------------------------------------------------
 # SIDEBAR FILTERS
@@ -80,7 +108,7 @@ df = load_data(GITHUB_EXCEL_URL)
 
 st.sidebar.header("Filters")
 
-routes = sorted(df["route_short_name"].dropna().unique())
+routes = sorted(df["route_short_name"].dropna().astype(str).unique())
 years = sorted(df["year"].dropna().unique())
 
 selected_routes = st.sidebar.multiselect(
@@ -96,7 +124,7 @@ selected_years = st.sidebar.multiselect(
 )
 
 filtered = df[
-    (df["route_short_name"].isin(selected_routes)) &
+    (df["route_short_name"].astype(str).isin(selected_routes)) &
     (df["year"].isin(selected_years))
 ]
 
